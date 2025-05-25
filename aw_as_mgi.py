@@ -1,4 +1,5 @@
-import re
+import argparse
+import sys
 from dependences.peco.peco import *
 
 class Converter:
@@ -6,17 +7,23 @@ class Converter:
         self.parser_async_func = self.define_async_func_grammar()
         self.parser_await_call = self.define_await_call_grammar()
 
-    def convert(self, source_code: str) -> str:
+    def convert(self, source_code: str, verbose: bool = False) -> str:
+        """
+        Perform two-phase parsing and code generation:
+        1. Extract and translate async function definitions.
+        2. Rewrite await calls into std::async .get() expressions.
+        """
+        # Phase 1: async functions
         ast = parse(source_code, self.parser_async_func)
         code = self.generate_async_func(ast.stack[0])
 
-        # now extract body and handle await calls
-        #return code
+        # Phase 2: await calls
         flat_code = code
         await_ast = parse(flat_code, self.parser_await_call)
-        print('AST: ', await_ast.stack[0])
+        # Print AST only in verbose mode
+        if verbose:
+            print('AST: ', await_ast.stack[0], file=sys.stderr)
         final_code = self.generate_await_calls(await_ast.stack[0])
-
         return final_code
 
     def define_async_func_grammar(self):
@@ -124,49 +131,63 @@ class Converter:
         return code
 
 
-
-def main():
-    src = """
-#include <iostream>
-#include <async_await>
-
-async Data fetchData(string url)
-{
-    Data data = await download(url);
-    Data processed = process(data);
-    return processed;
-}
-
-async bool pushData(Data data, string url)
-{
-    bool check = await push(url, data); 
-    return check;
-}
-
-int main()
-{
-    Data processed_data = await async Data(string url) {
-        return fetchData(url);
-    } ("google.com");
-    if (await pushData(processed_data, "my_serv.com"))
-        std::cout << "pushed";
-    else std::cout << "not pushed";
-}
-
-"""
-    src_recur = """
-async int fetchData(int q, string url)
-{
-   Data data = await async Data (string url)
-        { connect(url); return download(); } (url); 
-   return process(data);
-}
-
-"""
-
+def run_tests():
+    """
+    Internal test suite with sample inputs and expected patterns.
+    """
     converter = Converter()
-    print(converter.convert(src))
-
+    samples = [
+        ("int var = await async int(int num) { return 1; } (2);",
+         "int var = (std::async([](int num)[=](){\nreturn 1; \n}(2)).get();"),
+        ("async int foo(int num) { return 1; }",
+         "std::future<int> foo(int num) { return std::async([=](){\nreturn 1; \n}); }"),
+        ("await dl(u);",
+         "dl(u).get();"),
+    ]
+    all_pass = True
+    for src, expected in samples:
+        out = converter.convert(src)
+        if expected not in out:
+            print(f"[FAIL] Expected '{expected}' in output, got: {out}")
+            all_pass = False
+        else:
+            print(f"[PASS] '{expected}' found.")
+    if all_pass:
+        print("All tests passed.")
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(
+        description='CLI for converting async/await C++ patterns to std::async/std::future usage'
+    )
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument('--test', action='store_true', help='Run internal test suite')
+    mode_group.add_argument('-i', '--input', metavar='INPUT', help='Path to the input source file')
+    parser.add_argument('-o', '--output', metavar='OUTPUT', help='Path to write converted code')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose debug output')
+    args = parser.parse_args()
+
+    if args.test:
+        run_tests()
+        sys.exit(0)
+
+    if not args.input or not args.output:
+        parser.error('Input and output files must be specified when not in test mode')
+
+    try:
+        with open(args.input, 'r', encoding='utf-8') as f:
+            src = f.read()
+    except Exception as e:
+        print(f"Error reading input file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    converter = Converter()
+    result = converter.convert(src, verbose=args.verbose)
+
+    try:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(result)
+        if args.verbose:
+            print(f"Converted code written to {args.output}")
+    except Exception as e:
+        print(f"Error writing output file: {e}", file=sys.stderr)
+        sys.exit(1)
