@@ -24,9 +24,9 @@ IMGEL (Integrating Micro Grammar into the Existing Language) is an experimental 
     python main.py -i input.cpp -o output.cpp [-v]
     ```
 
-   Argument   | Description
-------------- | --------------------
---test        | Running in test mode
--i, --input   | Input file path
--o, --output  | Output file path
--v, --verbose | Printing AST to debug
+| Argument      | Description           |
+| :-----------: | :-------------------: |
+| --test        | Running in test mode  |
+| -i, --input   | Input file path       |
+| -o, --output  | Output file path      |
+| -v, --verbose | Printing AST to debug |
