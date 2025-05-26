@@ -8,11 +8,6 @@ class Converter:
         self.parser_await_call = self.define_await_call_grammar()
 
     def convert(self, source_code: str, verbose: bool = False) -> str:
-        """
-        Perform two-phase parsing and code generation:
-        1. Extract and translate async function definitions.
-        2. Rewrite await calls into std::async .get() expressions.
-        """
         # Phase 1: async functions
         ast = parse(source_code, self.parser_async_func)
         code = self.generate_async_func(ast.stack[0])
@@ -102,47 +97,43 @@ class Converter:
     def generate_async_func(self, ast):
         code = ''
         for ast_node in ast:
-            if ast_node[0] == 'async':
-                return_type, func_name, params, body = ast_node[1:]
-                param_str = ', '.join(f"{t} {n}" for t, n in params)
-                lambda_body = f"[=](){{\n{body}\n}}"
-                code += f"std::future<{return_type}> {func_name}({param_str}) " \
-                        f"{{ return std::async({lambda_body}); }}\n"
-            else:
-                code += ast_node[0]
+            match ast_node:
+                case ('async', return_type, func_name, params, body):
+                    param_str = ', '.join(f"{t} {n}" for t, n in params)
+                    lambda_body = f"[=](){{\n{body}\n}}"
+                    code += f"std::future<{return_type}> {func_name}({param_str}) " \
+                            f"{{ return std::async({lambda_body}); }}\n"
+                case _:
+                    code += ast_node[0]
         return code
 
     def generate_await_calls(self, ast_nodes):
         code = ''
         for node in ast_nodes:
-            if isinstance(node, str):
-                code += node
-            elif node[0] == 'await async':
-                _, return_type, params, body, args = node
-                param_str = ', '.join(f"{t} {n}" for t, n in params)
-                arg_str = ', '.join(args)
-                lambda_body = f"[=](){{\n{body}\n}}"
-                code += f"(std::async([]({param_str}){lambda_body}({arg_str})).get()"
-            elif node[0] == 'await':
-                expr = node[1]
-                code += f"{expr}).get()"
-            else:
-                code += node[0]
+            match node:
+                case str(node):
+                    code += node
+                case ('await async', return_type, params, body, args):
+                    param_str = ', '.join(f"{t} {n}" for t, n in params)
+                    arg_str = ', '.join(args)
+                    lambda_body = f"[=](){{\n{body}\n}}"
+                    code += f"(std::async([]({param_str}){lambda_body}({arg_str})).get()"
+                case ('await', expr):
+                    code += f"{expr}).get()"
+                case _:
+                    code += node[0]
         return code
 
 
 def run_tests():
-    """
-    Internal test suite with sample inputs and expected patterns.
-    """
     converter = Converter()
     samples = [
         ("int var = await async int(int num) { return 1; } (2);",
          "int var = (std::async([](int num)[=](){\nreturn 1; \n}(2)).get();"),
         ("async int foo(int num) { return 1; }",
          "std::future<int> foo(int num) { return std::async([=](){\nreturn 1; \n}); }"),
-        ("await dl(u);",
-         "dl(u).get();"),
+        ("await bar(u);",
+         "bar(u).get();"),
     ]
     all_pass = True
     for src, expected in samples:

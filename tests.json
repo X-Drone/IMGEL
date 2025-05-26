@@ -1,0 +1,14 @@
+[
+    {
+        "input": "int var = await async int(int num) { return 1; } (2);",
+        "expected": "int var = (std::async([](int num)[=](){\nreturn 1; \n}(2)).get();"
+    },
+    {
+        "input": "async int foo(int num) { return 1; }",
+        "expected": "std::future<int> foo(int num) { return std::async([=](){\nreturn 1; \n}); }"
+    },
+    {
+        "input": "await bar(u);",
+        "expected": "bar(u).get();"
+    }
+]
